@@ -1,0 +1,12 @@
+{
+  "name": "adversarial-pairing",
+  "version": "0.1.0",
+  "description": "Adversarial-pairing methodology framework — implementer + reviewer two-agent workflow with HAT cycles, ledger discipline, wiki sync, and cross-repo CI watch.",
+  "author": {
+    "name": "th3vib3coder"
+  },
+  "homepage": "https://github.com/th3vib3coder/adversarial-pairing-skill",
+  "repository": "https://github.com/th3vib3coder/adversarial-pairing-skill",
+  "license": "MIT",
+  "keywords": ["adversarial-pairing", "ledger", "review", "hat", "wiki"]
+}

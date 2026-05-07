@@ -1,0 +1,17 @@
+{
+  "name": "adversarial-pairing",
+  "metadata": {
+    "description": "Adversarial-pairing methodology marketplace — implementer + reviewer two-agent workflow."
+  },
+  "owner": {
+    "name": "th3vib3coder"
+  },
+  "plugins": [
+    {
+      "name": "adversarial-pairing",
+      "source": "./plugin/claude-code",
+      "description": "Adversarial-pairing Claude Code plugin: 5 commands (hat-1-stop, adversarial-review, dual-commit, init-pairing, lint-discipline) and 2 hooks (ledger-mantra-check advisory + pending-flip-guard blocking).",
+      "version": "0.1.0"
+    }
+  ]
+}
