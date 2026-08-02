@@ -11,6 +11,10 @@ Append-only: record status transitions as new rows rather than rewriting history
 
 | cluster | gate | status | last-updated | notes |
 |---------|------|--------|--------------|-------|
+| Seq 004 no-clobber-bootstrap-and-registry-writes | HAT 3 reviewer | ACCEPT | 2026-08-02 | Independent final reviews accepted the conservative bootstrap ownership boundary and the registry writer finalization boundary after reproducing and closing junction, hardlink, rollback, and concurrent-path defects. |
+| Seq 004 no-clobber-bootstrap-and-registry-writes | HAT 3 operator | GO-TO-FLIP | 2026-08-02 | Standing operator authorization to finish autonomously permits the accepted row flip and exact-scope staging without another conversational gate. |
+| Seq 003 portable-structural-commit-guard | CI watch | SUCCESS | 2026-08-02 | Hosted run 30758890309 passed all four Ubuntu/Windows and Node 18.17/24 cells on pushed commit d8f241a705045245bc19626fdb9d72434af38d18. |
+| Seq 002 continuous-integration | CI watch | SUCCESS | 2026-08-02 | The Node 18 ESM defect inherited by Seq 003 is closed; the same four-cell hosted run is green. |
 | Seq 003 portable-structural-commit-guard | HAT 3 operator | GO-TO-FLIP | 2026-08-02 | Standing operator authorization, explicitly granted to finish autonomously without repeated gates, activated the accepted R2 flip. |
 | Seq 003 portable-structural-commit-guard | HAT 3 reviewer | ACCEPT-TO-FLIP | 2026-08-02 | Independent reviewer accepted the corrected exact-scope patch after the final env-wrapped dual-cwd regression passed. |
 | Seq 003 portable-structural-commit-guard | HAT 3 | REDIRECT | 2026-08-02 | Pre-flip review found dual-possible cwd loss through direct and env-wrapped semicolon commits plus overbroad backslash unescaping; all three regressions were corrected and retested. |
