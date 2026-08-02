@@ -30,8 +30,13 @@ test('Bash launcher delegates all target mutation to the trusted Node runner', a
 });
 
 async function runFailure(target, options = {}) {
+  const { preload, ...execOptions } = options;
+  const executable = preload ? process.execPath : bash;
+  const args = preload
+    ? ['--require', preload, path.join(repoRoot, 'tools', 'bootstrap-apply.mjs'), repoRoot, target]
+    : [script, toPosix(target)];
   try {
-    await execFileAsync(bash, [script, toPosix(target)], { cwd: repoRoot, ...options });
+    await execFileAsync(executable, args, { cwd: repoRoot, ...execOptions });
   } catch (error) {
     return { code: error.code, stdout: String(error.stdout || ''), stderr: String(error.stderr || '') };
   }
@@ -95,10 +100,8 @@ fs.mkdirSync = function(candidate, options) {
 };
 `, 'utf8');
 
-  const nodeOptions = `${process.env.NODE_OPTIONS || ''} --require ${JSON.stringify(preload)}`.trim();
-  const result = await runFailure(target, { env: {
+  const result = await runFailure(target, { preload, env: {
     ...process.env,
-    NODE_OPTIONS: nodeOptions,
     BOOTSTRAP_RACE_WIKI: path.join(target, 'wiki'),
     BOOTSTRAP_RACE_OUTSIDE: outside,
   } });
@@ -133,9 +136,8 @@ fs.mkdirSync = function(candidate, options) {
   return original.call(fs, candidate, options);
 };
 `, 'utf8');
-  const result = await runFailure(target, { env: {
+  const result = await runFailure(target, { preload, env: {
     ...process.env,
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require ${JSON.stringify(preload)}`.trim(),
     BOOTSTRAP_RACE_WIKI: path.join(target, 'wiki'),
     BOOTSTRAP_RACE_OUTSIDE: outside,
   } });
@@ -170,9 +172,8 @@ fs.mkdirSync = function(candidate, options) {
   return original.call(fs, candidate, options);
 };
 `, 'utf8');
-  const result = await runFailure(target, { env: {
+  const result = await runFailure(target, { preload, env: {
     ...process.env,
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require ${JSON.stringify(preload)}`.trim(),
     BOOTSTRAP_RACE_WIKI: path.join(target, 'wiki'),
     BOOTSTRAP_RACE_IDENTITY: marker,
   } });
@@ -217,9 +218,8 @@ fs.mkdirSync = function(candidate, options) {
   return original.call(fs, candidate, options);
 };
 `, 'utf8');
-  const result = await runFailure(target, { env: {
+  const result = await runFailure(target, { preload, env: {
     ...process.env,
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require ${JSON.stringify(preload)}`.trim(),
     BOOTSTRAP_SUBSTITUTE_PATH: path.join(target, 'wiki', 'concepts'),
     BOOTSTRAP_SUBSTITUTE_IDENTITY: marker,
     BOOTSTRAP_FAIL_PATH: path.join(target, 'wiki', 'entities'),
@@ -261,9 +261,8 @@ fs.writeFileSync = function(destination, data, ...args) {
   return originalWrite.call(fs, destination, data, ...args);
 };
 `, 'utf8');
-  const result = await runFailure(target, { env: {
+  const result = await runFailure(target, { preload, env: {
     ...process.env,
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require ${JSON.stringify(preload)}`.trim(),
     BOOTSTRAP_HARDLINK_SOURCE: path.join(target, 'feature-ledger.md'),
     BOOTSTRAP_HARDLINK_OUTSIDE: leaked,
   } });
