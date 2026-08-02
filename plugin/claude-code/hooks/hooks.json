@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/ledger-mantra-check.js\""
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/ledger-mantra-check.js"]
           }
         ]
       }
@@ -17,7 +18,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pending-flip-guard.js\""
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/pending-flip-guard.js"]
           }
         ]
       }

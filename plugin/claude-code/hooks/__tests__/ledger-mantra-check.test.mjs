@@ -1,6 +1,51 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runHook } from '../ledger-mantra-check.js';
+import {
+  isCodeFile,
+  normalizeRepoPath,
+  runHook,
+} from '../ledger-mantra-check.js';
+
+test('normalizes absolute POSIX wiki/docs paths relative to the repo', () => {
+  assert.equal(normalizeRepoPath('/repo/wiki/tools/probe.js', '/repo'), 'wiki/tools/probe.js');
+  assert.equal(normalizeRepoPath('/repo/docs/probe.js', '/repo'), 'docs/probe.js');
+});
+
+test('normalizes absolute Windows wiki/docs paths relative to the repo', () => {
+  assert.equal(
+    normalizeRepoPath('C:\\repo\\wiki\\tools\\probe.js', 'C:\\repo'),
+    'wiki/tools/probe.js'
+  );
+  assert.equal(
+    normalizeRepoPath('C:\\repo\\docs\\probe.js', 'C:\\repo'),
+    'docs/probe.js'
+  );
+});
+
+test('normalizes relative backslash paths for portable classification', () => {
+  assert.equal(normalizeRepoPath('wiki\\tools\\probe.js', 'C:\\repo'), 'wiki/tools/probe.js');
+  assert.equal(isCodeFile('docs\\probe.js'), false);
+});
+
+test('absolute repo-local wiki/docs files do not produce warnings', async () => {
+  const posix = await runHook({
+    stagedFiles: ['/repo/wiki/tools/probe.js', '/repo/docs/probe.js'],
+    repoRoot: '/repo',
+  });
+  const windows = await runHook({
+    stagedFiles: ['C:\\repo\\wiki\\tools\\probe.js', 'C:\\repo\\docs\\probe.js'],
+    repoRoot: 'C:\\repo',
+  });
+  assert.deepEqual(posix.warnings, []);
+  assert.deepEqual(windows.warnings, []);
+  assert.equal(posix.exitCode, 0);
+  assert.equal(windows.exitCode, 0);
+});
+
+test('absolute paths outside the repo cannot masquerade as local docs', () => {
+  assert.equal(normalizeRepoPath('/outside/docs/probe.js', '/repo'), '/outside/docs/probe.js');
+  assert.equal(isCodeFile(normalizeRepoPath('/outside/docs/probe.js', '/repo')), true);
+});
 
 test('no warning when ledger row present in staged diff', async () => {
   const result = await runHook({ stagedFiles: ['src/foo.js', 'feature-ledger.md', 'wiki/log.md'] });

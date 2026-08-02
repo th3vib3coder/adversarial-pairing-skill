@@ -24,6 +24,82 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+/** Convert separators to the portable form used by git output. */
+function portablePath(filename) {
+  return filename.replaceAll('\\', '/');
+}
+
+function isWindowsAbsolute(filename) {
+  return /^[A-Za-z]:[\\/]/.test(filename) || /^\\\\[^\\]+\\[^\\]+/.test(filename);
+}
+
+function isInside(relativePath, pathApi) {
+  return relativePath !== '..' &&
+    !relativePath.startsWith(`..${pathApi.sep}`) &&
+    !pathApi.isAbsolute(relativePath);
+}
+
+/**
+ * Normalize an event or git path relative to the repository root. Windows and
+ * POSIX paths use their own path implementations on every host OS. A path
+ * outside the repository remains absolute and cannot masquerade as local docs.
+ * Relative event paths are resolved from `baseDir`.
+ */
+export function normalizeRepoPath(
+  filename,
+  repoRoot = process.cwd(),
+  baseDir = repoRoot
+) {
+  if (typeof filename !== 'string' || filename.length === 0) return '';
+
+  const fileIsWindows = isWindowsAbsolute(filename);
+  const rootIsWindows = isWindowsAbsolute(repoRoot);
+  if (fileIsWindows) {
+    const absolute = path.win32.normalize(filename);
+    if (!rootIsWindows) return portablePath(absolute);
+    const root = path.win32.resolve(repoRoot);
+    const relative = path.win32.relative(root, absolute);
+    return isInside(relative, path.win32)
+      ? portablePath(relative || '.')
+      : portablePath(absolute);
+  }
+
+  const fileIsPosix = filename.startsWith('/');
+  const rootIsPosix = repoRoot.startsWith('/');
+  if (fileIsPosix) {
+    const absolute = path.posix.normalize(portablePath(filename));
+    if (!rootIsPosix) return absolute;
+    const root = path.posix.resolve(portablePath(repoRoot));
+    const relative = path.posix.relative(root, absolute);
+    return isInside(relative, path.posix) ? relative || '.' : absolute;
+  }
+
+  if (rootIsWindows) {
+    const root = path.win32.resolve(repoRoot);
+    const base = isWindowsAbsolute(baseDir)
+      ? path.win32.resolve(baseDir)
+      : path.win32.resolve(root, baseDir);
+    const absolute = path.win32.resolve(base, filename);
+    const relative = path.win32.relative(root, absolute);
+    return isInside(relative, path.win32)
+      ? portablePath(relative || '.')
+      : portablePath(absolute);
+  }
+
+  if (rootIsPosix) {
+    const root = path.posix.resolve(portablePath(repoRoot));
+    const portableBase = portablePath(baseDir);
+    const base = portableBase.startsWith('/')
+      ? path.posix.resolve(portableBase)
+      : path.posix.resolve(root, portableBase);
+    const absolute = path.posix.resolve(base, portablePath(filename));
+    const relative = path.posix.relative(root, absolute);
+    return isInside(relative, path.posix) ? relative || '.' : absolute;
+  }
+
+  return path.posix.normalize(portablePath(filename)).replace(/^\.\//, '');
+}
+
 /**
  * Determine whether a file path is a code file.
  * Heuristic: not a .md file, not under wiki/ or docs/.
@@ -32,8 +108,9 @@ import { pathToFileURL } from 'node:url';
  * @returns {boolean}
  */
 export function isCodeFile(filename) {
-  if (filename.endsWith('.md')) return false;
-  if (filename.startsWith('wiki/') || filename.startsWith('docs/')) return false;
+  const normalized = portablePath(filename).replace(/^\.\//, '');
+  if (normalized.toLowerCase().endsWith('.md')) return false;
+  if (normalized.startsWith('wiki/') || normalized.startsWith('docs/')) return false;
   return true;
 }
 
@@ -57,27 +134,30 @@ export function hasLedgerFile(stagedFiles) {
  */
 export function hasWikiLogEntry(stagedFiles) {
   return stagedFiles.some(
-    f => f === 'wiki/log.md' || f.endsWith('/wiki/log.md')
+    f => portablePath(f) === 'wiki/log.md' || portablePath(f).endsWith('/wiki/log.md')
   );
 }
 
 /**
  * Pure helper used by unit tests.
  *
- * @param {{ stagedFiles?: string[] }} options
+ * @param {{ stagedFiles?: string[], repoRoot?: string }} options
  * @returns {Promise<{ warnings: string[], exitCode: number }>}
  */
-export async function runHook({ stagedFiles = [] } = {}) {
+export async function runHook({ stagedFiles = [], repoRoot = process.cwd() } = {}) {
   const warnings = [];
+  const normalizedFiles = stagedFiles.map((filename) =>
+    normalizeRepoPath(filename, repoRoot)
+  );
 
-  const codeFiles = stagedFiles.filter(isCodeFile);
+  const codeFiles = normalizedFiles.filter(isCodeFile);
 
   if (codeFiles.length > 0) {
-    if (!hasLedgerFile(stagedFiles)) {
+    if (!hasLedgerFile(normalizedFiles)) {
       warnings.push(
         `[ledger-mantra-check] ledger row missing (code files: ${codeFiles.length})`
       );
-    } else if (!hasWikiLogEntry(stagedFiles)) {
+    } else if (!hasWikiLogEntry(normalizedFiles)) {
       warnings.push(
         `[ledger-mantra-check] wiki/log.md entry missing (log missing — ledger present but no wiki/log entry)`
       );
@@ -147,19 +227,19 @@ async function findRepoRoot(start) {
  * also peek at git index to pick up any other staged files in this commit.
  *
  * @param {object} payload
- * @returns {Promise<string[]>}
+ * @returns {Promise<{ stagedFiles: string[], repoRoot: string }>}
  */
 async function gatherStagedFiles(payload) {
   const set = new Set();
   const ti = payload.tool_input || {};
+  const cwd = payload.cwd || process.cwd();
+  const root = await findRepoRoot(cwd);
   if (typeof ti.file_path === 'string' && ti.file_path.length > 0) {
-    set.add(ti.file_path);
+    set.add(normalizeRepoPath(ti.file_path, root, cwd));
   }
   // Best-effort: read git index for already-staged files. Failures are silent.
   // execFileSync is used (not exec/execSync) — argv passed as array, no shell.
   try {
-    const cwd = payload.cwd || process.cwd();
-    const root = await findRepoRoot(cwd);
     const { execFileSync } = await import('node:child_process');
     const out = execFileSync('git', ['diff', '--cached', '--name-only'], {
       cwd: root,
@@ -168,12 +248,12 @@ async function gatherStagedFiles(payload) {
     });
     for (const line of out.split('\n')) {
       const t = line.trim();
-      if (t) set.add(t);
+      if (t) set.add(normalizeRepoPath(t, root));
     }
   } catch {
     // not a git repo, or git not available — fall through with what we have
   }
-  return [...set];
+  return { stagedFiles: [...set], repoRoot: root };
 }
 
 async function cliMain() {
@@ -186,8 +266,8 @@ async function cliMain() {
     return;
   }
 
-  const stagedFiles = await gatherStagedFiles(payload);
-  const result = await runHook({ stagedFiles });
+  const { stagedFiles, repoRoot } = await gatherStagedFiles(payload);
+  const result = await runHook({ stagedFiles, repoRoot });
 
   // Emit advisory output as JSON on stdout (Claude Code surfaces systemMessage
   // to the user). Exit code is always 0 for an advisory hook.

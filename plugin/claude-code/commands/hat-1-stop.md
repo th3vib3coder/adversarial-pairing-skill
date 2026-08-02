@@ -1,109 +1,101 @@
 ---
-description: Stamp the HAT 1 STOP pre-flight gate before any implementation code is written; freezes mode, pre-survey, design, RED tests, and mantras for reviewer ACCEPT/REDIRECT.
+description: Produce the HAT 1 STOP design gate before tests or implementation are written; requires reviewer ACCEPT and valid operator authorization.
 ---
 
-# /hat-1-stop
+# /adversarial-pairing:hat-1-stop
 
-Stamp the HAT 1 STOP report at the start of any implementation unit. This command
-freezes the pre-flight state before a single line of implementation code is written.
-The operator MUST NOT proceed until a reviewer has issued ACCEPT (or REDIRECT with
-explicit notes). Skipping this gate violates Cluster 1 discipline (§1.5.3).
+Produce a HAT 1 STOP report only. Do not create or edit tests, implementation,
+ledgers, or wiki files while running this command. HAT 2 starts only after a
+distinct reviewer issues ACCEPT and operator authorization is recorded. Authorization may be a
+fresh GO or consumption of a valid standing authorization; never infer standing authorization.
 
----
+## 1. Declare roles and scope
 
-## 1. Pre-flight CI Verification
+- Implementer instance: `<agent-id>`
+- Reviewer instance: `<different agent-id>`
+- Atomic seq/scope: `<seq and one-line objective>`
+- Working repositories: `<paths>`
 
-Determine which mode applies before filling this section.
+The implementer may not issue reviewer ACCEPT.
 
-| Mode | Trigger condition |
-|------|------------------|
-| **Bootstrap** | No ledger row exists yet for `<scope>`; first commit in this unit |
-| **Steady-state** | Ledger row exists; prior GREEN CI recorded |
+## 2. Classify the pre-flight mode correctly
 
-**Active mode:** `[ ] Bootstrap  [ ] Steady-state`
+`Bootstrap` means genuine Day 1: the project has no established remote/CI
+baseline and the pairing scaffold is being initialized. A missing row for the
+current seq does not make an existing project Bootstrap. Every other case is
+`Steady-state`.
 
+- Active mode: `[ ] Bootstrap  [ ] Steady-state`
+- Evidence for classification: `<remote/CI/project evidence>`
+
+Discover the project's canonical commands from CI configuration, manifests,
+build files, or contributor documentation. Do not assume pytest, npm, or any
+other language-specific runner.
+
+Record, then run only read-only pre-flight checks:
+
+```text
+project-native baseline/full-suite command: <exact command and exit code>
+working-tree command: git status --short
+remote CI command or authoritative UI/API: <exact check, or N/A with reason in Bootstrap>
+immutable-surface diff check: <exact command and result>
 ```
-# Run in provider repo root:
-git status --short
-gh run list --limit 3 --branch $(git branch --show-current)
-```
 
-Last CI run result: `<PASS / FAIL / PENDING>`
-Ledger row for `<scope>`: `<exists / missing>`
+A red baseline blocks HAT 2 unless it is explicitly isolated as pre-existing
+and the reviewer plus direct or in-scope standing operator authorization approve the exception.
 
----
+## 3. Helper-aware pre-survey
 
-## 2. Pre-survey Checklist (helper-aware grep)
-
-Search for existing helpers BEFORE writing new code. Fill every cell.
+Run and record all five mandatory search classes. Prefer `rg`; adapt file globs
+to the repository. One literal-symbol search is never enough.
 
 ```bash
-# Helper-aware grep — run from repo root
-grep -r "<keyword>" --include="*.ts" --include="*.mjs" --include="*.py" \
-     -l | head -20
+# 1. Literal property/import/export access
+rg -n "<surface|symbol|property>" <source-roots>
+
+# 2. Bracket/dynamic dispatch
+rg -n "\[[^]]*(<surface|method|verb>)[^]]*\]|\[[A-Za-z_$][A-Za-z0-9_$]*\]\s*\(" <source-roots>
+
+# 3. Helper conventions and wrappers
+rg -n "safe[A-Z]|withFallback|try(Read|Get)|ensure[A-Z]|<project-specific-helper>" <source-roots>
+
+# 4. instanceof and type-guard routing
+rg -n "instanceof\s+<Type>|is[A-Z][A-Za-z0-9_]*\s*\(|<project-specific-type-guard>" <source-roots>
+
+# 5. Catch/swallow patterns
+rg -n -A 3 "catch\s*\([^)]*\)\s*\{" <source-roots>
 ```
 
-| Item | Result |
-|------|--------|
-| Existing helper for `<feature>` found? | `<yes — path / no>` |
-| Duplicate export symbol risk? | `<yes — symbol / no>` |
-| Immutable surface files touched? | `<list files or none>` |
-| Any file already > 400 lines (near limit)? | `<list files or none>` |
+For each class, paste the exact command, match count, relevant paths, and any
+second survey round. List direct callers, helper-mediated callers, duplicate
+helpers/exports, immutable surfaces, and files near the 500-line limit.
 
----
+## 4. Freeze the design
 
-## 3. Design Choice
+- Selected option and rationale: `<decision grounded in the survey>`
+- Alternatives rejected and trade-offs: `<evidence>`
+- Public contract before/after: `<exact delta or none>`
+- Files authorized to change: `<closed list>`
+- Files explicitly out of scope: `<list>`
+- Estimated line additions and final sizes: `<counts; each file <= 500 lines>`
+- Confounder hypothesis/control: `<harness or N/A rationale>`
 
-**What is being built?**
-`<one sentence: component name, location, purpose>`
+Any later change to the authorized file list or design returns to HAT 1.
 
-**Contract delta (what changes at the public boundary):**
+## 5. RED test plan — plan only
 
-```
-BEFORE: <describe existing exported interface / none>
-AFTER:  <describe new/modified exported interface>
-```
+List the tests that will be written after operator authorization and why they must fail
+against the current implementation. Do not write or execute the new tests yet.
 
-**Files to be created or modified:**
-
-```
-<files>
-```
-
-**Estimated line additions:** `<N>` (all files must stay ≤ 500 lines post-change)
-
----
-
-## 4. RED Test Plan
-
-List every test that MUST FAIL before implementation begins. All tests must be
-written and confirmed RED before the operator issues GO.
-
-```
-<tests>
+```text
+<test-file>::<test-name> — <assertion> — expected pre-fix failure
+targeted RED command: <project-native command to run during HAT 2>
+full-suite GREEN command: <project-native command to run during HAT 2>
 ```
 
-Format: `<file>::<test-name> — <what it asserts>`
+## 6. Verbatim mantras
 
-Example:
-```
-tests/unit/widget.test.ts::Widget.render — throws when config missing
-tests/unit/widget.test.ts::Widget.export — returns correct symbol shape
-```
-
-Confirmed RED run output (paste or attach):
-```
-<paste failing test output here>
-```
-
----
-
-## 5. Mantras — VERBATIM
-
-The following mantras must appear verbatim in every SKILL.md save target for this
-scope. Copy them unchanged into the implementation unit notes.
-
-```
+```text
 MANTRA-1: No helper is written twice. Search before implement.
 MANTRA-2: Immutable surfaces are never touched by implementers.
 MANTRA-3: RED before GREEN. No test written after implementation.
@@ -111,20 +103,25 @@ MANTRA-4: One commit per atomic task. Never bundle.
 MANTRA-5: The ledger is the single source of truth for cross-repo state.
 ```
 
----
+## 7. Gate outcome
 
-## 6. HAT 1 STOP Outcome
+- STOP submitted by implementer: `<timestamp>`
+- Reviewer decision: `[ ] ACCEPT  [ ] REDIRECT`
+- Reviewer evidence/notes: `<verbatim>`
+- Operator mode after reviewer ACCEPT: `[ ] direct GO  [ ] standing authorization  [ ] NO-GO`
+- Standing authorization ID (when selected): `<unique durable ID>`
+- Operator source: `<verbatim only in a private record, or exact durable reference/source receipt>`
+- Public artifact privacy check: `<no private transcript, PII, or machine path; include SHA-256 receipt metadata and defined portable aliases>`
+- Authorized objective: `<closed outcome>`
+- Authorized repositories and branches: `<exact remotes and branch names>`
+- Authorized seq: `<closed seq identifiers>`
+- Allowed state transitions: `<named HAT/flip/stage/commit transitions>`
+- Allowed external effects: `<exact pushes, CI, local replacements, or other effects>`
+- Expiry condition: `<objective/time/state boundary>`
+- Explicit exclusions: `<merge/tag/release/destructive and other excluded effects>`
+- Normalized HAT 1 record: `<OPERATOR-GO HAT1 directly or via standing-auth ID>`
 
-**Submitted by (operator):** `<name / agent-id>`
-**Timestamp:** `<ISO-8601>`
-
-```
-[ ] ACCEPT  — reviewer confirms pre-survey complete, RED tests listed, design sound
-[ ] REDIRECT — reviewer issues notes below before operator may proceed
-```
-
-**Reviewer notes (if REDIRECT):**
-`<notes>`
-
-**Operator GO** (after ACCEPT only):
-`[ ] GO issued — implementation may begin`
+Until both reviewer ACCEPT and valid operator authorization are recorded, output `STOP` and make
+no test or implementation change. With valid standing authorization, record its consumption and
+continue without asking for a repeated conversational GO. Pause if scope, effects, or expiry are
+ambiguous; the full contract is `docs/spec/appendices/E-standing-operator-authorization.md`.

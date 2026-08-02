@@ -10,8 +10,7 @@
     {
       "name": "adversarial-pairing",
       "source": "./plugin/claude-code",
-      "description": "Adversarial-pairing Claude Code plugin: 5 commands (hat-1-stop, adversarial-review, dual-commit, init-pairing, lint-discipline) and 2 hooks (ledger-mantra-check advisory + pending-flip-guard blocking).",
-      "version": "0.1.0"
+      "description": "Adversarial-pairing Claude Code plugin: 5 commands (hat-1-stop, adversarial-review, dual-commit, init-pairing, lint-discipline) and 2 hooks (ledger-mantra-check advisory + pending-flip-guard blocking)."
     }
   ]
 }

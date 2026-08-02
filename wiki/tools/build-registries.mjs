@@ -97,19 +97,34 @@ async function getLstat(filePath) {
     throw err;
   }
 }
+async function assertUnlinkedComponents(filePath, label) {
+  const resolved = path.resolve(filePath);
+  const root = path.parse(resolved).root;
+  let current = root;
+  for (const part of path.relative(root, resolved).split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    const stats = await getLstat(current);
+    if (!stats) return null;
+    if (stats.isSymbolicLink()) {
+      throw new UnsafePathError(`${label} resolves through a link or reparse point (symlink/junction): ${current}`);
+    }
+  }
+  return getLstat(resolved);
+}
 async function assertSafeDirectory(filePath, label, { allowMissing = false } = {}) {
-  const stats = await getLstat(filePath);
+  const stats = await assertUnlinkedComponents(filePath, label);
   if (!stats) {
     if (allowMissing) return false;
     throw new UnsafePathError(`${label} does not exist: ${filePath}`);
   }
-  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+  if (!stats.isDirectory()) {
     throw new UnsafePathError(`${label} must be a real directory, not a link or another file type: ${filePath}`);
   }
-
   const canonical = await realpath(filePath);
-  if (!samePath(canonical, filePath)) {
-    throw new UnsafePathError(`${label} resolves through a link or reparse point: ${filePath} -> ${canonical}`);
+  const canonicalStats = await lstat(canonical);
+  const rechecked = await assertUnlinkedComponents(filePath, label);
+  if (!rechecked || !sameIdentity(stats, canonicalStats) || !sameIdentity(stats, rechecked)) {
+    throw new UnsafePathError(`${label} changed identity while its path was verified: ${filePath}`);
   }
   return true;
 }
@@ -164,14 +179,12 @@ async function assertHandlePath(handle, filePath, expected) {
   }
   return opened;
 }
-
 async function sanitizeOwnedHandle(handle, expected) {
   const opened = await handle.stat();
   if (!opened.isFile() || !sameIdentity(opened, expected)) throw new UnsafePathError('refusing to sanitize an unverified inode');
   await handle.truncate(0);
   await handle.sync();
 }
-
 async function sanitizeKnownPath(filePath, expected) {
   const before = await assertRegularPath(filePath);
   if (!sameIdentity(before, expected)) throw new UnsafePathError(`refusing to sanitize changed path: ${filePath}`);
@@ -186,7 +199,6 @@ async function sanitizeKnownPath(filePath, expected) {
     await handle.close();
   }
 }
-
 async function writeOwnedFile(projectRoot, filePath, content, pauseVariable) {
   const handle = await open(filePath, 'wx', 0o666);
   let opened;
@@ -226,7 +238,6 @@ async function writeOwnedFile(projectRoot, filePath, content, pauseVariable) {
   }
   return opened;
 }
-
 async function createRegistryFile(projectRoot, filePath, content) {
   const entitiesDir = await prepareEntitiesDirectory(projectRoot, { create: false });
   if (!entitiesDir || !samePath(path.dirname(filePath), entitiesDir)) {
@@ -235,11 +246,9 @@ async function createRegistryFile(projectRoot, filePath, content) {
 
   await writeOwnedFile(projectRoot, filePath, content, 'ADVERSARIAL_PAIRING_TEST_CREATE_PAUSE_MS');
 }
-
 function transactionPath(filePath, kind) {
   return path.join(path.dirname(filePath), `.${path.basename(filePath)}.${kind}-${process.pid}-${randomUUID()}`);
 }
-
 async function stageRegistryFile(projectRoot, item) {
   await prepareEntitiesDirectory(projectRoot, { create: false });
   const tempPath = transactionPath(item.filePath, 'tmp');
@@ -248,7 +257,6 @@ async function stageRegistryFile(projectRoot, item) {
   const opened = await writeOwnedFile(projectRoot, tempPath, item.content, 'ADVERSARIAL_PAIRING_TEST_STAGE_PAUSE_MS');
   return { ...item, tempPath, backupPath, tempStats: opened, backedUp: false, installed: false };
 }
-
 async function removeKnownArtifact(filePath, expected, sanitize = false) {
   const current = await assertRegularPath(filePath, { allowMissing: true });
   if (!current) return;
@@ -258,7 +266,6 @@ async function removeKnownArtifact(filePath, expected, sanitize = false) {
   if (sanitize) await sanitizeKnownPath(filePath, expected);
   await unlink(filePath);
 }
-
 async function installStaged(step) {
   const noFollow = process.platform === 'win32' ? 0 : (FS_CONSTANTS.O_NOFOLLOW ?? 0);
   const handle = await open(step.tempPath, FS_CONSTANTS.O_RDWR | noFollow);
@@ -276,7 +283,6 @@ async function installStaged(step) {
   try { await handle.close(); } catch (err) { failure ??= err; }
   if (failure) throw failure;
 }
-
 async function forceReplacePlan(projectRoot, plan) {
   const staged = [];
   try {

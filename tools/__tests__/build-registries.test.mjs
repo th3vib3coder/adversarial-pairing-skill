@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, access, link, readdir, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, access, link, readdir, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
@@ -294,6 +294,48 @@ test('rejects a linked project root and does not write through it', async () => 
   await expectToolFailure([linkedRoot], /project root must be a real directory|resolves through a link/);
 
   assert.equal(await pathIsMissing(path.join(realRoot, 'wiki')), true);
+});
+
+test('rejects a project root reached through a linked ancestor', async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), 'br-root-link-parent-'));
+  const realParent = path.join(parent, 'real-parent');
+  const realRoot = path.join(realParent, 'project');
+  const linkedParent = path.join(parent, 'linked-parent');
+  await mkdir(realRoot, { recursive: true });
+  await createDirectoryLink(realParent, linkedParent);
+
+  await expectToolFailure([path.join(linkedParent, 'project')], /resolves through a link or reparse point/);
+
+  assert.equal(await pathIsMissing(path.join(realRoot, 'wiki')), true);
+});
+
+test('accepts a Windows 8.3 alias when every path component is a real directory', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Windows-only 8.3 alias regression');
+    return;
+  }
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'br-short-alias-'));
+  let aliasRoot;
+  try {
+    const result = await execFileAsync(
+      process.env.ComSpec || 'cmd.exe',
+      ['/d', '/c', `for %I in ("${fixtureRoot}") do @echo %~sI`],
+      { encoding: 'utf8', windowsVerbatimArguments: true },
+    );
+    aliasRoot = result.stdout.trim();
+  } catch {
+    t.skip('the Windows host cannot resolve an 8.3 alias');
+    return;
+  }
+  const canonicalRoot = await realpath(fixtureRoot);
+  if (!aliasRoot || aliasRoot.toLowerCase() === path.normalize(canonicalRoot).toLowerCase()) {
+    t.skip('8.3 names are disabled on the Windows temporary volume');
+    return;
+  }
+
+  await runTool(aliasRoot);
+
+  assert.equal(await pathIsMissing(path.join(fixtureRoot, 'wiki', 'entities', 'registry-cli-verbs.md')), false);
 });
 
 test('rejects a linked wiki directory and does not write outside the project', async () => {

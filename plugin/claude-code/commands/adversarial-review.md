@@ -1,134 +1,182 @@
 ---
-description: Two-level adversarial review (tactical diff + strategic plan) on staged changes; both must PASS before commit.
+description: Perform an independent HAT 3 tactical, strategic, and six-signal closure review; only a distinct reviewer may ACCEPT.
 ---
 
-# /adversarial-review
+# /adversarial-pairing:adversarial-review
 
-Trigger a two-level adversarial review on all staged changes. Level 1 (tactical)
-operates at diff granularity and catches mechanical violations. Level 2 (strategic)
-operates at plan granularity and catches scope drift, methodology deviation, and
-ground-truth misalignment. Both levels must pass before a commit is issued. This
-command implements Cluster 2 §2.5.2 review protocol.
+Act only as the declared REVIEWER. Do not edit files, repair the diff, stage,
+commit, push, issue operator GO, or declare a standing authorization. Inspect evidence independently; an
+implementer's summary is a claim, not proof.
 
----
+Required inputs:
 
-## Level 1 — Tactical Review (diff-level)
+- reviewer and implementer instance IDs (must differ);
+- current seq and accepted HAT 1 STOP report;
+- repository root(s), authorized file list, ledger row, and wiki tier;
+- HAT 2 RED/GREEN evidence and the candidate file inventory.
+- direct operator decisions, or the standing-authorization record and its prior consumptions.
 
-Run against `git diff --staged`. Every row must resolve to PASS before Level 2.
+If any input is absent, return `REDIRECT` with the missing evidence.
 
-### 1.1 Anti-duplication check
+## A. Determine the review phase and inspect the right surface
+
+Read the canonical feature-ledger table structurally: locate the `R2 inline`
+column from its header, then locate exactly one anchored row for the current
+seq. Do not search the whole ledger for free-text `pending` or `ACCEPT` tokens;
+mantras, evidence, and historical rows are documentary text, not current state.
+
+When the current R2 cell is `R2 inline pending`, this is the **pre-flip review**.
+Review the working-tree candidate and every untracked path:
 
 ```bash
-# For each new function/class in the diff, search for prior art:
-grep -r "<new-symbol>" --include="*.ts" --include="*.mjs" --include="*.py" \
-     --exclude-dir=node_modules -l
+git status --short
+git diff --name-status
+git diff --stat
+git diff
+git ls-files --others --exclude-standard
+git diff --cached --name-status
 ```
 
-| Check | Result |
-|-------|--------|
-| New symbols already exist elsewhere? | `[ ] No  [ ] Yes — <path>` |
-| Imported helper available but re-implemented? | `[ ] No  [ ] Yes — <detail>` |
+An empty index and empty `git diff --cached` are valid in this phase and are not
+missing evidence. Inspect the contents of every authorized untracked file with a
+read-only file operation; `git diff` does not include them. Any path outside the
+accepted HAT 1 file list is a redirect. If the index is not empty, disclose it
+and inspect it as part of the candidate, but it cannot serve as the final staged
+review required after the flip.
 
-### 1.2 Frozen-detail integrity
-
-Frozen details are constants, prompt strings, enum values, or config keys that are
-declared canonical in `blueprints/` or `docs/spec/`. They must never be paraphrased.
-
-| Frozen item | Source location | Present verbatim in diff? |
-|-------------|-----------------|--------------------------|
-| `<item-1>` | `<path>` | `[ ] Yes  [ ] No` |
-| `<item-2>` | `<path>` | `[ ] Yes  [ ] No` |
-
-### 1.3 Immutable surface check
-
-Immutable surfaces: `blueprints/`, `docs/spec/DESIGN.md`, ledger schema columns.
+When the current R2 cell is `R2 inline OK`, this is the **post-flip final
+review**. Run:
 
 ```bash
-git diff --staged --name-only | grep -E "^(blueprints/|docs/spec/DESIGN)"
+git status --short
+git diff --cached --name-status
+git diff --cached --stat
+git diff --cached
+git diff --name-only
+git ls-files --others --exclude-standard
 ```
 
-Result: `<none — PASS / list files — FAIL>`
+The complete atomic patch must be staged. Unstaged or untracked authorized
+changes are a redirect because the cached diff would not be the commit candidate.
 
-### 1.4 File size rule (500-line hard limit)
+In the applicable phase, verify:
+
+1. **Anti-duplication:** for every new helper/export, run repository-wide `rg`
+   searches for literal names, analogous implementations, wrappers, and dynamic
+   dispatch. Cite exact paths and lines.
+2. **Frozen details and shape pins:** compare every claimed constant, schema,
+   prompt, enum, and public signature with the exact authoritative spec section.
+3. **Immutable surfaces:** compare touched files and public contracts with the
+   HAT 1 authorization. An unapproved touch is a redirect.
+4. **Local coherence:** no dangling references, partial refactors, unexplained
+   dependencies, generated noise, or file over 500 lines.
+5. **State integrity:** pre-flip inventory covers tracked and untracked candidate
+   files; post-flip staging contains only the complete intended patch, including
+   ledger and required wiki changes.
+
+## B. Strategic review against HAT 1
+
+Verify that every changed file and design decision is traceable to the accepted
+STOP report. Check scope containment, ground-truth support, redirect/split-event
+documentation, and methodology adherence.
+
+RED-before-code is established from the session record and captured failing
+output, not inferred from commit order in a pre-commit diff. If the
+evidence does not establish RED-first sequencing, return `REDIRECT`.
+
+## C. Six closure signals — execute and record all six
+
+All checks are scoped to the current seq. Record the exact command, exit code,
+and relevant output. Never substitute a convenient runner for the project's
+canonical command.
+
+### Signal 1 — targeted and full tests
+
+Run the project-native targeted GREEN command from the RED record, then the
+project-native full suite. Require both exit 0 and no hidden skips/regressions.
+Also verify the captured pre-fix RED output matches the same targeted test.
+
+### Signal 2 — structural current-seq R2 state
+
+Inspect the canonical table header and the one anchored current-seq row. Before
+the flip, the exact R2 cell must be `R2 inline pending`; after the flip, inspect
+that row in the cached diff and require the exact cell `R2 inline OK`:
 
 ```bash
-# Check all files touched by the diff:
-git diff --staged --name-only | xargs -I{} sh -c 'echo "$(wc -l < {}) {}"' \
-  | awk '$1 > 500 {print "OVER LIMIT:", $0}'
+rg -n "^\|[[:space:]]*<seq>[[:space:]]*\|" <ledger-file>
+git diff --cached -- <ledger-file>   # required only for post-flip final review
 ```
 
-Result: `<none — PASS / violations listed>`
+Final PASS requires exactly one current row, the exact `R2 inline OK` cell, and
+the staged reviewer/operator transition records. Generic words elsewhere in the
+ledger or diff are not state evidence.
 
-### 1.5 Tactical verdict
+If the tactical, strategic, and other five signals pass but the current row is
+still pending, emit the exact provisional token:
 
-```
-[ ] PASS — all Level 1 checks green; proceed to Level 2
-[ ] FAIL — violations listed above; REDIRECT before commit
-```
-
----
-
-## Level 2 — Strategic Review (plan-level)
-
-Evaluate the diff in the context of the approved implementation plan.
-
-### 2.1 Ground-truth alignment
-
-Is each decision in the diff traceable to a specific spec section or approved plan item?
-
-| Decision in diff | Traceable to | Grounded? |
-|-----------------|--------------|-----------|
-| `<decision-1>` | `<spec §N.N>` | `[ ] Yes  [ ] No` |
-| `<decision-2>` | `<spec §N.N>` | `[ ] Yes  [ ] No` |
-
-### 2.2 Scope creep detection
-
-```
-[ ] Diff touches only files listed in the HAT 1 STOP design choice
-[ ] No new exports added beyond the approved contract delta
-[ ] No new dependencies introduced without plan approval
+```text
+ACCEPT-TO-FLIP — technical closure passes; operator flip authorization is required.
 ```
 
-### 2.3 Methodology adherence
+This is not final HAT 3 ACCEPT and authorizes no commit. After a direct
+GO-to-flip or valid standing-authorization consumption is recorded, the implementer changes only
+the current R2 cell to `R2 inline OK`, stages the complete atomic patch, and resubmits the cached
+diff for final verification. The reviewer verifies scope but never consumes authorization.
 
-```
-[ ] RED tests were written BEFORE implementation (confirmed via commit order)
-[ ] No test was added or modified AFTER the GREEN commit
-[ ] Commit is atomic (single task, single logical change)
-```
+### Signal 3 — confounder controlled
 
-### 2.4 Strategic verdict
+Inspect the current ledger row. Require either `confounder: N/A` with a specific
+reviewer-approved rationale or the exact project-native confounder harness with
+exit 0. A match from another seq does not pass.
 
-```
-[ ] PASS — plan-aligned, no scope creep, methodology followed
-[ ] REDIRECT — strategic issues noted below
-```
+### Signal 4 — wiki lint
 
-**Redirect notes:** `<notes if REDIRECT>`
+Run the reviewed plugin-bundled linter against the project wiki:
 
----
-
-## Decision Output
-
-```
-ACCEPT  — both Level 1 and Level 2 PASS; commit may proceed
-REDIRECT — one or more checks failed; implementer must address before commit
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/tools/wiki-lint.mjs" "<repo-root>/wiki" --json
 ```
 
-**Final decision:** `[ ] ACCEPT  [ ] REDIRECT`
-**Reviewer:** `<name / agent-id>`
-**Timestamp:** `<ISO-8601>`
+Require exit 0 and `issueCount: 0`. Do not silently execute a preserved,
+unreviewed target-owned script.
+Run project-specific broken-link or duplicate-anchor checks separately when the
+project defines them.
 
----
+### Signal 5 — registry consistency
 
-## 5-Axis Evaluation Summary
+Run the project-specific real registry scanner in check mode. The bundled
+`build-registries.mjs` is a scaffold/stub; output containing
+`NOT a completeness proof` cannot satisfy this signal. If no real scanner
+exists, require an explicit current-seq `N/A` rationale approved by the reviewer.
 
-| Axis | Score (1-5) | Notes |
-|------|-------------|-------|
-| Anti-duplication | ` ` | |
-| Frozen-detail fidelity | ` ` | |
-| Immutable surface safety | ` ` | |
-| File size compliance | ` ` | |
-| Ground-truth alignment | ` ` | |
+### Signal 6 — Tier-C reflection
 
-**Overall:** `<ACCEPT / REDIRECT>`
+Inspect the current ledger row and require exactly one of:
+
+```text
+tier-C: yes, p.<N>
+tier-C: noop — <specific reason>
+```
+
+Silence, a match from another seq, or a bare `noop` fails.
+
+## D. Decision
+
+Return a table with Tactical, Strategic, and Signals 1–6, each marked
+`PASS`, `FAIL`, or `N/A` with evidence. A signal may be N/A only where the spec
+explicitly permits it and the rationale is approved.
+
+Before the state flip, the only positive output is the provisional
+`ACCEPT-TO-FLIP` token defined above. After the state flip and complete staging,
+final output
+must be exactly one of:
+
+```text
+ACCEPT — tactical and strategic review pass; all six closure signals are green.
+REDIRECT — <numbered defects, exact evidence, and minimum required correction>.
+```
+
+Only the distinct reviewer may emit `ACCEPT`. ACCEPT does not commit. A direct GO or a separate,
+recorded consumption of valid standing authorization is still required before commit/push. When
+standing authorization already covers that exact effect, the implementer proceeds without asking
+for another conversational GO. Any scope mismatch is `REDIRECT`.

@@ -20,7 +20,9 @@ status: sourced | computed | claimed | supposition
 type: concept | source | entity | synthesis | hypothesis | manual
 role: tool-catalog | user-manual | reference-doc
 provenance:
-  - kind: <primary-source-kind>
+  - kind: audit-finding | codebase-file | codebase-directory | protocol |
+          feature-ledger | generated-inventory | generated-summary |
+          command-output | wiki-page
     ref: <citation-or-url>
     locator: <optional-section-or-page>
 last-verified-at: YYYY-MM-DD
@@ -33,6 +35,15 @@ last-verified-at: YYYY-MM-DD
 - **computed**: derived deterministically from sourced data
 - **claimed**: asserted without a primary source; needs verification
 - **supposition**: working hypothesis; treat as provisional
+
+## Tier A/B/C update model
+
+- **Tier A (mechanical)**: registries may auto-regenerate only from an explicitly configured real
+  project scanner. Bundled registry stubs are schema/drift fixtures, not source-coverage proof.
+- **Tier B (semi-automatic)**: entity, schema, and hook pages are created or updated from inspected
+  project sources and record their provenance.
+- **Tier C (cognitive)**: concept, synthesis, and hypothesis pages capture architectural insight, or
+  the ledger records an explicit noop with rationale.
 
 ## Operator notes
 

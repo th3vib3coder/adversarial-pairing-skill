@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync, execSync } from 'node:child_process';
@@ -182,6 +182,16 @@ test('bootstrap.sh injects wiki/CLAUDE.md and wiki/log.md', async () => {
   await execFileAsync(BASH_BIN, [SCRIPT_PATH, targetRoot], { cwd: REPO_ROOT });
   assert.ok(await fileExists(path.join(targetRootRaw, 'wiki/CLAUDE.md')), 'wiki/CLAUDE.md present');
   assert.ok(await fileExists(path.join(targetRootRaw, 'wiki/log.md')), 'wiki/log.md present');
+  const schema = await readFile(path.join(targetRootRaw, 'wiki/CLAUDE.md'), 'utf8');
+  for (const kind of [
+    'audit-finding', 'codebase-file', 'codebase-directory', 'protocol', 'feature-ledger',
+    'generated-inventory', 'generated-summary', 'command-output', 'wiki-page',
+  ]) assert.match(schema, new RegExp(`\\b${kind}\\b`, 'u'));
+  assert.doesNotMatch(schema, /<primary-source-kind>/u);
+  assert.match(schema, /Tier A \(mechanical\)/u);
+  assert.match(schema, /Tier B \(semi-automatic\)/u);
+  assert.match(schema, /Tier C \(cognitive\)/u);
+  assert.match(schema, /Bundled registry stubs are schema\/drift fixtures, not source-coverage proof/u);
 });
 
 test('bootstrap.sh copies 4 .mjs tools to wiki/tools/', async () => {
@@ -206,7 +216,7 @@ test('bootstrap.sh stops BEFORE commit, outputs READY string, no git commit', as
   await execFileAsync('git', ['init', targetRootRaw], { cwd: targetRootRaw });
   const { stdout } = await execFileAsync(BASH_BIN, [SCRIPT_PATH, targetRoot], { cwd: REPO_ROOT });
   // Verify READY output
-  assert.match(stdout, /READY: bootstrap structure complete; operator GO required for first commit/);
+  assert.match(stdout, /READY: bootstrap structure complete; operator authorization required for first commit/);
   // Verify NO commit was made (git log should fail or be empty)
   let logResult;
   try {
@@ -250,6 +260,12 @@ test('bootstrap.sh Step 7: creates target CLAUDE.md containing adversarial-pairi
     contents.includes('## adversarial-pairing methodology'),
     'CLAUDE.md must contain "## adversarial-pairing methodology" header'
   );
+  assert.match(contents, /wiki\/CLAUDE\.md/u);
+  assert.match(contents, /Every code-affecting patch carries its ledger row and parallel wiki sync/u);
+  assert.doesNotMatch(contents, /Cluster 4 §4\.5\.1/u);
+  assert.doesNotMatch(contents, /docs\/spec\/, skills\/, plugin\//u);
+  assert.match(contents, /methodology documentation bundled with the installed skill or plugin/iu);
+  assert.match(contents, /https:\/\/github\.com\/th3vib3coder\/adversarial-pairing-skill/u);
 });
 
 test('bootstrap.sh Step 7: is idempotent — running twice does not duplicate header', async () => {
@@ -271,28 +287,10 @@ test('bootstrap.sh Step 7: is idempotent — running twice does not duplicate he
     'second run inventory must preserve the same deterministic path order');
 });
 
-test('bootstrap.sh rejects a filesystem root before the first write', async () => {
-  const stubDirRaw = await mkdtemp(path.join(tmpdir(), 'bs-stub-bin-'));
-  const stubDir = toPosixPath(stubDirRaw);
-  const mkdirStub = path.join(stubDirRaw, process.platform === 'win32' ? 'mkdir.exe' : 'mkdir');
-  await writeFile(mkdirStub, '#!/usr/bin/env bash\nexit 97\n', 'utf8');
-  await chmod(mkdirStub, 0o755);
-
+test('bootstrap.sh rejects a filesystem root with the safety exit code', async () => {
   const rootTarget = process.platform === 'win32' ? '/' : path.parse(homedir()).root;
-  const shell = 'PATH="$1:$PATH"; export PATH; "$2" "$3"';
-  let result;
-  try {
-    await execFileAsync(
-      BASH_BIN,
-      ['--noprofile', '--norc', '-c', shell, 'bootstrap-root-test', stubDir, SCRIPT_PATH, rootTarget],
-      { cwd: REPO_ROOT }
-    );
-    assert.fail('bootstrap.sh unexpectedly accepted a filesystem root');
-  } catch (error) {
-    result = { code: error.code, stderr: String(error.stderr || '') };
-  }
-
-  assert.equal(result.code, 2, 'root rejection must happen before the mkdir sentinel executes');
+  const result = await runBootstrapExpectFailure(rootTarget);
+  assert.equal(result.code, 2);
   assert.match(result.stderr, /unsafe target.*filesystem root/i);
 });
 
