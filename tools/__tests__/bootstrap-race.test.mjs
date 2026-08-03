@@ -22,6 +22,24 @@ function toPosix(input) {
 }
 
 const script = toPosix(path.join(repoRoot, 'tools', 'bootstrap.sh'));
+const preloadPathHelper = `
+fs.writeFileSync(process.env.BOOTSTRAP_PRELOAD_MARKER, 'loaded');
+function canonicalCandidate(candidate) {
+  const absolute = path.resolve(candidate);
+  const parent = fs.realpathSync.native(path.dirname(absolute));
+  const value = path.join(parent, path.basename(absolute));
+  return process.platform === 'win32' ? value.toLowerCase() : value;
+}
+function matchesCandidate(candidate, expected) {
+  const candidateName = path.basename(path.resolve(candidate));
+  const expectedName = path.basename(path.resolve(expected));
+  const sameName = process.platform === 'win32'
+    ? candidateName.toLowerCase() === expectedName.toLowerCase()
+    : candidateName === expectedName;
+  if (!sameName) return false;
+  return canonicalCandidate(candidate) === canonicalCandidate(expected);
+}
+`;
 
 test('Bash launcher delegates all target mutation to the trusted Node runner', async () => {
   const source = await readFile(path.join(repoRoot, 'tools', 'bootstrap.sh'), 'utf8');
@@ -31,6 +49,14 @@ test('Bash launcher delegates all target mutation to the trusted Node runner', a
 
 async function runFailure(target, options = {}) {
   const { preload, ...execOptions } = options;
+  const preloadMarker = preload ? `${preload}.loaded` : null;
+  if (preloadMarker) {
+    execOptions.env = {
+      ...process.env,
+      ...(execOptions.env || {}),
+      BOOTSTRAP_PRELOAD_MARKER: preloadMarker,
+    };
+  }
   const executable = preload ? process.execPath : bash;
   const args = preload
     ? ['--require', preload, path.join(repoRoot, 'tools', 'bootstrap-apply.mjs'), repoRoot, target]
@@ -38,8 +64,10 @@ async function runFailure(target, options = {}) {
   try {
     await execFileAsync(executable, args, { cwd: repoRoot, ...execOptions });
   } catch (error) {
+    if (preloadMarker) assert.equal(existsSync(preloadMarker), true, 'preload hook did not execute');
     return { code: error.code, stdout: String(error.stdout || ''), stderr: String(error.stderr || '') };
   }
+  if (preloadMarker) assert.equal(existsSync(preloadMarker), true, 'preload hook did not execute');
   assert.fail('bootstrap unexpectedly succeeded');
 }
 
@@ -83,15 +111,17 @@ test('transaction preserves an unknown junction substituted after mkdirSync', as
   const preload = path.join(fixture, 'race-hook.cjs');
   await mkdir(target);
   await mkdir(outside);
+  const raceTarget = process.platform === 'win32' ? target.toUpperCase() : target;
   await writeFile(path.join(outside, 'sentinel.txt'), 'unchanged', 'utf8');
   await writeFile(preload, `
 const fs = require('node:fs');
 const path = require('node:path');
+${preloadPathHelper}
 const original = fs.mkdirSync;
 let fired = false;
 fs.mkdirSync = function(candidate, options) {
   const result = original.call(fs, candidate, options);
-  if (!fired && path.resolve(candidate) === path.resolve(process.env.BOOTSTRAP_RACE_WIKI)) {
+  if (!fired && matchesCandidate(candidate, process.env.BOOTSTRAP_RACE_WIKI)) {
     fired = true;
     fs.rmdirSync(candidate);
     fs.symlinkSync(process.env.BOOTSTRAP_RACE_OUTSIDE, candidate, process.platform === 'win32' ? 'junction' : 'dir');
@@ -100,9 +130,9 @@ fs.mkdirSync = function(candidate, options) {
 };
 `, 'utf8');
 
-  const result = await runFailure(target, { preload, env: {
+  const result = await runFailure(raceTarget, { preload, env: {
     ...process.env,
-    BOOTSTRAP_RACE_WIKI: path.join(target, 'wiki'),
+    BOOTSTRAP_RACE_WIKI: path.join(raceTarget, 'wiki'),
     BOOTSTRAP_RACE_OUTSIDE: outside,
   } });
 
@@ -126,10 +156,11 @@ test('transaction preserves an unknown junction that causes mkdir EEXIST', async
   await writeFile(preload, `
 const fs = require('node:fs');
 const path = require('node:path');
+${preloadPathHelper}
 const original = fs.mkdirSync;
 let fired = false;
 fs.mkdirSync = function(candidate, options) {
-  if (!fired && path.resolve(candidate) === path.resolve(process.env.BOOTSTRAP_RACE_WIKI)) {
+  if (!fired && matchesCandidate(candidate, process.env.BOOTSTRAP_RACE_WIKI)) {
     fired = true;
     fs.symlinkSync(process.env.BOOTSTRAP_RACE_OUTSIDE, candidate, process.platform === 'win32' ? 'junction' : 'dir');
   }
@@ -159,10 +190,11 @@ test('concurrent legitimate directory on mkdir EEXIST is preserved by identity a
   await writeFile(preload, `
 const fs = require('node:fs');
 const path = require('node:path');
+${preloadPathHelper}
 const original = fs.mkdirSync;
 let fired = false;
 fs.mkdirSync = function(candidate, options) {
-  if (!fired && path.resolve(candidate) === path.resolve(process.env.BOOTSTRAP_RACE_WIKI)) {
+  if (!fired && matchesCandidate(candidate, process.env.BOOTSTRAP_RACE_WIKI)) {
     fired = true;
     original.call(fs, candidate, { recursive: false });
     fs.writeFileSync(path.join(candidate, 'sentinel.txt'), 'concurrent-owner');
@@ -196,11 +228,11 @@ test('post-mkdir real-directory substitution survives a later transactional fail
   await writeFile(preload, `
 const fs = require('node:fs');
 const path = require('node:path');
+${preloadPathHelper}
 const original = fs.mkdirSync;
 let substituted = false;
 fs.mkdirSync = function(candidate, options) {
-  const resolved = path.resolve(candidate);
-  if (!substituted && resolved === path.resolve(process.env.BOOTSTRAP_SUBSTITUTE_PATH)) {
+  if (!substituted && matchesCandidate(candidate, process.env.BOOTSTRAP_SUBSTITUTE_PATH)) {
     original.call(fs, candidate, options);
     fs.rmdirSync(candidate);
     original.call(fs, candidate, { recursive: false });
@@ -210,7 +242,7 @@ fs.mkdirSync = function(candidate, options) {
     substituted = true;
     return;
   }
-  if (substituted && resolved === path.resolve(process.env.BOOTSTRAP_FAIL_PATH)) {
+  if (substituted && matchesCandidate(candidate, process.env.BOOTSTRAP_FAIL_PATH)) {
     const error = new Error('forced failure after real-directory substitution');
     error.code = 'EIO';
     throw error;
@@ -244,13 +276,14 @@ test('owned inode is truncated when a hardlink appears after open and before wri
   await writeFile(preload, `
 const fs = require('node:fs');
 const path = require('node:path');
+${preloadPathHelper}
 const originalOpen = fs.openSync;
 const originalWrite = fs.writeFileSync;
 const watched = new Set();
 let fired = false;
 fs.openSync = function(candidate, ...args) {
   const descriptor = originalOpen.call(fs, candidate, ...args);
-  if (typeof candidate === 'string' && path.resolve(candidate) === path.resolve(process.env.BOOTSTRAP_HARDLINK_SOURCE)) watched.add(descriptor);
+  if (typeof candidate === 'string' && matchesCandidate(candidate, process.env.BOOTSTRAP_HARDLINK_SOURCE)) watched.add(descriptor);
   return descriptor;
 };
 fs.writeFileSync = function(destination, data, ...args) {
