@@ -98,6 +98,46 @@ test('CLI: exit 0 + no warning when payload references a non-code (wiki) file', 
   }
 });
 
+test('CLI: native absolute wiki path is normalized relative to repo root', async () => {
+  const tmp = await fs.mkdtemp(path.join(tmpdir(), 'lmc-absolute-wiki-'));
+  try {
+    const wikiFile = path.join(tmp, 'wiki', 'tools', 'probe.js');
+    await fs.mkdir(path.dirname(wikiFile), { recursive: true });
+    await fs.writeFile(wikiFile, '// documentation helper\n');
+    const r = await runCli(
+      {
+        tool_name: 'Edit',
+        tool_input: { file_path: wikiFile },
+        cwd: tmp,
+      },
+      { cwd: tmp }
+    );
+    assert.equal(r.code, 0);
+    assert.equal(r.stdout.trim(), '');
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('CLI: relative backslash docs path is classified as documentation', async () => {
+  const tmp = await fs.mkdtemp(path.join(tmpdir(), 'lmc-backslash-docs-'));
+  try {
+    await fs.mkdir(path.join(tmp, 'docs'), { recursive: true });
+    const r = await runCli(
+      {
+        tool_name: 'Write',
+        tool_input: { file_path: 'docs\\probe.js' },
+        cwd: tmp,
+      },
+      { cwd: tmp }
+    );
+    assert.equal(r.code, 0);
+    assert.equal(r.stdout.trim(), '');
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
 test('CLI: empty stdin is handled gracefully (advisory exit 0)', async () => {
   const r = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [HOOK], {

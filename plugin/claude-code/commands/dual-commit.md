@@ -1,163 +1,135 @@
 ---
-description: Cross-repo provider+consumer commit/push playbook with ledger flip pending->OK in strict A-H order; preserves cross-repo ledger consistency.
+description: Execute a gated provider-first, consumer-second dual-repo delivery; each commit requires HAT 3 ACCEPT and valid operator authorization.
 ---
 
-# /dual-commit
+# /adversarial-pairing:dual-commit
 
-Cross-repo commit and push playbook for provider + consumer repositories. Execute
-all 8 steps in strict order (A → H). Never reorder. Step D (ledger flip) must
-happen BEFORE the consumer commit — this is the invariant that keeps ledger state
-consistent across repos. Implements Appendix D of the adversarial-pairing spec.
+Use only when the dependency direction is provider → consumer. This command is
+a controlled playbook, not authorization to mutate either repository. Never commit, push, flip a
+ledger, or create a missing row without the direct gate or valid standing-authorization
+consumption listed for that action. Standing authorization must name both repositories, branches,
+seqs, effects, and provider-first ordering.
 
-**Prerequisites:** `/adversarial-review` ACCEPT issued on provider diff.
+## 0. Freeze identities and evidence
 
----
+- Provider repo/branch: `<absolute path>` / `<branch>`
+- Consumer repo/branch: `<absolute path>` / `<branch>`
+- Provider seq and ledger row: `<id/path>`
+- Consumer seq and ledger row: `<id/path>`
+- Distinct reviewer: `<agent-id>`
+- Dependency evidence: `<why consumer requires provider>`
 
-## Step A — Stage and commit provider repo
+Both repos must already have accepted HAT 1 scopes and completed HAT 2. A
+missing ledger row is a STOP: return to HAT 1/closure and create it in pending
+state. Never create a missing row directly as `OK`.
+
+## Provider gate
+
+Before Step A, require this exact sequence:
+
+1. `/adversarial-pairing:adversarial-review` verifies the provider diff and records
+   `ACCEPT-TO-FLIP` (all technical checks green; only the pending state remains).
+2. Operator records direct `GO-TO-FLIP` or a standing-authorization consumption for provider.
+3. Implementer changes only the provider current-seq marker from
+   `R2 inline pending` to `R2 inline OK`, records the reviewer evidence, and
+   stages the complete atomic provider patch.
+4. Reviewer reruns the staged six-signal review and issues final HAT 3 `ACCEPT`.
+5. Operator records direct `GO-COMMIT provider` or a standing-authorization consumption.
+
+Without all five records, stop before Step A.
+
+## A. Commit provider
 
 ```bash
-# In provider repo root:
-git add <provider-files>
-git status --short          # confirm only intended files staged
-git commit -m "<provider-commit-message>"
+git -C <provider-repo> status --short
+git -C <provider-repo> diff --cached --name-status
+git -C <provider-repo> commit -m "<atomic provider message with seq>"
 ```
 
-Fill in:
-- Provider files staged: `<provider-files>`
-- Commit message: `<provider-commit-message>` (must reference task ID)
+Confirm the staged set contains the provider ledger/wiki evidence and no
+unapproved file. Never use `--no-verify`.
 
-**Failure mode:** if commit hook fails, fix the violation and re-run Step A.
-Do NOT use `--no-verify`.
-
----
-
-## Step B — Push provider
+## B. Push provider
 
 ```bash
-# In provider repo root:
-git push origin <provider-branch>
+git -C <provider-repo> push origin <provider-branch>
 ```
 
-Fill in:
-- Provider branch: `<provider-branch>`
+## C. Watch provider CI
 
-**Failure mode:** if push is rejected (non-fast-forward), rebase on remote and
-re-run Steps A–B. Never force-push to main.
-
----
-
-## Step C — Watch provider CI
+Use the repository's authoritative CI command or UI/API and record the run URL,
+commit SHA, command, exit code, and final GREEN result. With GitHub CLI, for
+example:
 
 ```bash
-# In provider repo root:
-gh run watch
+gh run list --repo <provider-owner/repo> --branch <provider-branch> --limit 3
+gh run watch <provider-run-id> --repo <provider-owner/repo> --exit-status
 ```
 
-Wait for GREEN. Do NOT proceed to Step D until CI passes.
+Provider CI RED stops the playbook. Fix it in a new atomic provider HAT cycle;
+do not touch or push the consumer.
 
-- Provider CI run URL: `<url>`
-- CI result: `[ ] GREEN  [ ] RED — investigate before continuing`
+## Consumer gate
 
-**Failure mode:** if CI is RED, fix in a new commit (re-run Steps A–C). Never flip
-the ledger against a failing CI.
+Only after provider CI is GREEN:
 
----
+1. Add the provider commit SHA and CI URL to the existing pending consumer row.
+2. `/adversarial-pairing:adversarial-review` verifies the consumer diff against its accepted HAT 1
+   scope and records `ACCEPT-TO-FLIP`.
+3. Operator records direct `GO-TO-FLIP` or a standing-authorization consumption for consumer.
+4. Implementer flips only the consumer current-seq marker from
+   `R2 inline pending` to `R2 inline OK` and stages code, ledger, and wiki files.
+5. Reviewer reruns the staged six-signal review and issues final HAT 3 `ACCEPT`.
+6. Operator records direct `GO-COMMIT consumer` or a standing-authorization consumption.
 
-## Step D — Flip ledger row: pending → OK (BEFORE consumer commit)
+No consumer mutation, staging, commit, or push is authorized by provider CI alone. Missing
+consumer review or valid operator authorization is a STOP. An in-scope standing authorization
+removes the need to ask again, but each transition still needs its own ledger record.
 
-This step must execute BEFORE any consumer file is staged.
+## D. Verify the consumer flip before commit
 
 ```bash
-# In consumer repo root, edit the ledger:
-# File: docs/ledger.md  (or equivalent ledger path)
-# Find the row for <provider-scope> and change status pending → OK
-# Record the provider CI run URL in the ledger row.
-
-# Verify the flip:
-grep "<provider-scope>" docs/ledger.md
+git -C <consumer-repo> diff --cached -- <consumer-ledger-file>
+rg -n "^\|[[:space:]]*<consumer-seq>[[:space:]]*\|" <consumer-ledger-file>
 ```
 
-Fill in:
-- Provider scope / feature ID: `<provider-scope>`
-- Ledger file path: `<ledger-path>`
-- Provider CI run URL recorded in ledger: `[ ] Yes`
+Read the table header to locate the `R2 inline` column, require exactly one anchored consumer-seq
+row, and require that cell to equal `R2 inline OK`. Documentary prose and other seq rows do not
+count.
 
-**Failure mode:** if the ledger row does not exist, create it with status OK and the
-CI URL. Never leave a consumer commit with a missing or pending ledger entry.
-
----
-
-## Step E — Stage all consumer files (including flipped ledger)
+## E. Verify the complete consumer staging set
 
 ```bash
-# In consumer repo root:
-git add <consumer-files> <ledger-path>
-git status --short          # confirm ledger row change is staged
+git -C <consumer-repo> status --short
+git -C <consumer-repo> diff --cached --name-status
 ```
 
-Fill in:
-- Consumer files staged: `<consumer-files>`
-- Ledger file included in staging: `[ ] Yes`
+Require all authorized consumer code, ledger, and wiki files and nothing else.
 
-**Failure mode:** if ledger is not staged, the commit is invalid. Abort and
-re-stage including the ledger.
-
----
-
-## Step F — Commit consumer
+## F. Commit consumer
 
 ```bash
-# In consumer repo root:
-git commit -m "<consumer-commit-message>"
+git -C <consumer-repo> commit -m "<atomic consumer message with provider seq>"
 ```
 
-Fill in:
-- Commit message: `<consumer-commit-message>` (must reference provider task ID
-  and confirm ledger flip, e.g. `feat(consumer): integrate <scope>; ledger OK`)
-
-**Failure mode:** same as Step A — fix hook violations in a new commit, never skip.
-
----
-
-## Step G — Push consumer
+## G. Push consumer
 
 ```bash
-# In consumer repo root:
-git push origin <consumer-branch>
+git -C <consumer-repo> push origin <consumer-branch>
 ```
 
-Fill in:
-- Consumer branch: `<consumer-branch>`
+## H. Watch consumer CI
 
-**Failure mode:** same as Step B.
+Run the authoritative CI watch to completion and record run URL, commit SHA,
+exit code, and GREEN result. The dual delivery closes only after both remote
+commits exist, both CI runs are GREEN, both ledger rows are OK, and both wiki
+records match the landed SHAs.
 
----
+## Stop conditions
 
-## Step H — Watch consumer CI
-
-```bash
-# In consumer repo root:
-gh run watch
-```
-
-Wait for GREEN. Dual-commit is complete only when both CI runs are GREEN.
-
-- Consumer CI run URL: `<url>`
-- CI result: `[ ] GREEN  [ ] RED — investigate`
-
-**Dual-commit complete:** both provider CI and consumer CI GREEN, ledger row OK.
-
----
-
-## Completion Summary
-
-| Step | Status |
-|------|--------|
-| A — provider commit | `[ ] done` |
-| B — provider push | `[ ] done` |
-| C — provider CI GREEN | `[ ] done` |
-| D — ledger flip pending→OK | `[ ] done` |
-| E — consumer stage (incl. ledger) | `[ ] done` |
-| F — consumer commit | `[ ] done` |
-| G — consumer push | `[ ] done` |
-| H — consumer CI GREEN | `[ ] done` |
+- No HAT 3 ACCEPT or no valid operator authorization for either commit: stop.
+- Missing row: return to HAT 1; never synthesize an already-OK row.
+- Provider CI RED: repair provider in a new cycle; consumer remains untouched.
+- Push rejection: fetch/rebase only when the exact recovery is authorized; never force-push main.
+- Pending marker discovered after commit: record a state-integrity incident and
+  repair it in a new reviewed commit; never rewrite published history silently.

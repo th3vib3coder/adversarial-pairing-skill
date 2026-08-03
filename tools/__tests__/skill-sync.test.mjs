@@ -1,79 +1,206 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, stat } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { promisify } from 'node:util';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// ── Paths ──────────────────────────────────────────────────────────────────
-// Top-level skill (documented canonical source per spec: skills/<runtime>/<name>/SKILL.md).
-// Plugin-bundled skill (loader-discoverable copy under plugin/claude-code/skills/<name>/SKILL.md).
-// Both must match byte-for-byte (HAT 1 ACCEPT Q2 option (a): keep both, enforce sync).
+const run = promisify(execFile);
+const here = path.dirname(fileURLToPath(import.meta.url));
+const repo = path.resolve(here, '..', '..');
+const canonicalDocs = path.join(repo, 'docs');
+const canonicalTools = path.join(repo, 'tools');
+const canonicalLicense = path.join(repo, 'LICENSE');
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const trustedTools = [
+  'audit-entity-exports.mjs',
+  'bootstrap-apply.mjs',
+  'bootstrap-preflight.mjs',
+  'bootstrap.sh',
+  'build-registries.mjs',
+  'lint-discipline.sh',
+  'sync-mirror.mjs',
+  'wiki-lint.mjs',
+];
+const esmTools = trustedTools.filter((name) => name.endsWith('.mjs'));
+const bashExecutable = process.platform === 'win32'
+  ? [
+      process.env.GIT_BASH_PATH,
+      'C:\\Program Files\\Git\\bin\\bash.exe',
+      'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+    ].find((candidate) => candidate && existsSync(candidate)) || 'bash'
+  : 'bash';
 
-const SOURCE = path.join(REPO_ROOT, 'skills', 'claude-code', 'adversarial-pairing', 'SKILL.md');
-const BUNDLE = path.join(REPO_ROOT, 'plugin', 'claude-code', 'skills', 'adversarial-pairing', 'SKILL.md');
+const packages = [
+  {
+    name: 'standalone Claude skill',
+    root: path.join(repo, 'skills', 'claude-code', 'adversarial-pairing'),
+    entry: 'SKILL.md',
+    canonicalEntry: path.join(repo, 'skills', 'claude-code', 'adversarial-pairing', 'SKILL.md'),
+    exerciseBootstrap: true,
+  },
+  {
+    name: 'standalone Codex skill',
+    root: path.join(repo, 'skills', 'codex', 'adversarial-pairing'),
+    entry: 'SKILL.md',
+    canonicalEntry: path.join(repo, 'skills', 'codex', 'adversarial-pairing', 'SKILL.md'),
+    exerciseBootstrap: true,
+  },
+  {
+    name: 'Claude plugin',
+    root: path.join(repo, 'plugin', 'claude-code'),
+    entry: path.join('skills', 'adversarial-pairing', 'SKILL.md'),
+    canonicalEntry: path.join(repo, 'skills', 'claude-code', 'adversarial-pairing', 'SKILL.md'),
+    exerciseBootstrap: false,
+  },
+  {
+    name: 'plugin-nested Claude skill',
+    root: path.join(repo, 'plugin', 'claude-code', 'skills', 'adversarial-pairing'),
+    entry: 'SKILL.md',
+    canonicalEntry: path.join(repo, 'skills', 'claude-code', 'adversarial-pairing', 'SKILL.md'),
+    exerciseBootstrap: false,
+  },
+];
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-async function fileExists(p) {
+async function isFile(file) {
   try {
-    const s = await stat(p);
-    return s.isFile();
+    return (await stat(file)).isFile();
   } catch {
     return false;
   }
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────
+async function relativeFiles(root, current = root) {
+  const files = [];
+  for (const entry of await readdir(current, { withFileTypes: true })) {
+    const absolute = path.join(current, entry.name);
+    if (entry.isDirectory()) files.push(...await relativeFiles(root, absolute));
+    else if (entry.isFile()) files.push(path.relative(root, absolute).replaceAll('\\', '/'));
+  }
+  return files.sort();
+}
 
-test('top-level Claude SKILL.md exists at documented spec path', async () => {
-  assert.ok(
-    await fileExists(SOURCE),
-    `Missing canonical source: ${path.relative(REPO_ROOT, SOURCE)}`
+async function assertByteEqual(actual, expected, label) {
+  assert.ok(await isFile(actual), `${label}: missing ${actual}`);
+  assert.deepEqual(await readFile(actual), await readFile(expected), label);
+}
+
+function executableEnvironment() {
+  return {
+    ...process.env,
+    PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}`,
+  };
+}
+
+function bashPath(file) {
+  return file.replaceAll('\\', '/');
+}
+
+async function validateIsolatedPackage(pkg, isolated) {
+  await assertByteEqual(
+    path.join(isolated, pkg.entry),
+    pkg.canonicalEntry,
+    `${pkg.name} entry point`,
   );
-  const buf = await readFile(SOURCE);
-  assert.ok(buf.byteLength > 0, 'top-level SKILL.md must be non-empty');
-});
-
-test('plugin-bundled Claude SKILL.md exists at loader-discoverable path', async () => {
-  assert.ok(
-    await fileExists(BUNDLE),
-    `Missing plugin bundle: ${path.relative(REPO_ROOT, BUNDLE)}`
+  await assertByteEqual(
+    path.join(isolated, 'LICENSE'),
+    canonicalLicense,
+    `${pkg.name} license`,
   );
-  const buf = await readFile(BUNDLE);
-  assert.ok(buf.byteLength > 0, 'plugin-bundled SKILL.md must be non-empty');
-});
 
-test('top-level Claude SKILL.md and plugin-bundled SKILL.md match byte-for-byte', async () => {
-  const sourceBuf = await readFile(SOURCE);
-  const bundleBuf = await readFile(BUNDLE);
-
-  if (sourceBuf.equals(bundleBuf)) return;
-
-  // Diverged — produce actionable diagnostic
-  const sourceText = sourceBuf.toString('utf8');
-  const bundleText = bundleBuf.toString('utf8');
-  const sourceLines = sourceText.split('\n');
-  const bundleLines = bundleText.split('\n');
-
-  let firstDiff = -1;
-  for (let i = 0; i < Math.max(sourceLines.length, bundleLines.length); i++) {
-    if (sourceLines[i] !== bundleLines[i]) {
-      firstDiff = i + 1;
-      break;
-    }
+  const canonicalDocFiles = await relativeFiles(canonicalDocs);
+  const packagedDocFiles = await relativeFiles(path.join(isolated, 'docs'));
+  assert.deepEqual(packagedDocFiles, canonicalDocFiles, `${pkg.name} docs inventory`);
+  for (const relative of canonicalDocFiles) {
+    await assertByteEqual(
+      path.join(isolated, 'docs', relative),
+      path.join(canonicalDocs, relative),
+      `${pkg.name} docs/${relative}`,
+    );
   }
 
-  const sourceRel = path.relative(REPO_ROOT, SOURCE).replaceAll('\\', '/');
-  const bundleRel = path.relative(REPO_ROOT, BUNDLE).replaceAll('\\', '/');
+  const packagedToolFiles = await relativeFiles(path.join(isolated, 'tools'));
+  assert.deepEqual(packagedToolFiles, trustedTools.slice().sort(), `${pkg.name} tools inventory`);
+  for (const tool of trustedTools) {
+    await assertByteEqual(
+      path.join(isolated, 'tools', tool),
+      path.join(canonicalTools, tool),
+      `${pkg.name} tools/${tool}`,
+    );
+  }
+}
 
-  assert.fail(
-    `Claude SKILL.md sync drift detected.\n` +
-    `  source: ${sourceRel} (${sourceLines.length} lines, ${sourceBuf.byteLength} bytes)\n` +
-    `  bundle: ${bundleRel} (${bundleLines.length} lines, ${bundleBuf.byteLength} bytes)\n` +
-    `  first diff at line ${firstDiff}\n` +
-    `  re-sync (from repo root): cp -p ${sourceRel} ${bundleRel}`
+async function executeIsolatedTools(pkg, isolated, temporaryParent) {
+  const env = executableEnvironment();
+  for (const tool of esmTools) {
+    await run(process.execPath, ['--check', path.join(isolated, 'tools', tool)], {
+      cwd: isolated,
+      env,
+      windowsHide: true,
+    });
+  }
+  if (!pkg.exerciseBootstrap) return;
+
+  const script = bashPath(path.join(isolated, 'tools', 'bootstrap.sh'));
+  const help = await run(bashExecutable, [script, '--help'], {
+    cwd: isolated,
+    env,
+    windowsHide: true,
+  });
+  assert.match(help.stdout, /^Usage: bash tools\/bootstrap\.sh/u);
+
+  const target = path.join(temporaryParent, 'disposable target');
+  await mkdir(target);
+  const result = await run(bashExecutable, [script, bashPath(target)], {
+    cwd: isolated,
+    env,
+    windowsHide: true,
+    maxBuffer: 1024 * 1024,
+  });
+  assert.match(result.stdout, /^CREATE: wiki\/CLAUDE\.md$/mu);
+  assert.match(result.stdout, /READY: bootstrap structure complete/u);
+  for (const relative of [
+    'CLAUDE.md',
+    'feature-ledger.md',
+    'status-ledger.md',
+    path.join('wiki', 'CLAUDE.md'),
+    path.join('wiki', 'log.md'),
+  ]) {
+    assert.ok(await isFile(path.join(target, relative)), `${pkg.name} did not create ${relative}`);
+  }
+}
+
+test('distribution matrix names every independently installable package', () => {
+  assert.deepEqual(packages.map(({ name }) => name), [
+    'standalone Claude skill',
+    'standalone Codex skill',
+    'Claude plugin',
+    'plugin-nested Claude skill',
+  ]);
+});
+
+for (const pkg of packages) {
+  test(`${pkg.name} works from an isolated copied package`, async () => {
+    const temporaryParent = await mkdtemp(path.join(tmpdir(), 'adversarial-pairing-package-'));
+    const isolated = path.join(temporaryParent, 'package');
+    try {
+      await cp(pkg.root, isolated, { recursive: true, force: false, errorOnExist: true });
+      assert.equal(isolated.startsWith(repo), false, 'isolated copy must live outside the repository');
+      await validateIsolatedPackage(pkg, isolated);
+      await executeIsolatedTools(pkg, isolated, temporaryParent);
+    } finally {
+      await rm(temporaryParent, { recursive: true, force: true });
+    }
+  });
+}
+
+test('Claude loader entry matches the standalone Claude entry byte-for-byte', async () => {
+  await assertByteEqual(
+    path.join(repo, 'plugin', 'claude-code', 'skills', 'adversarial-pairing', 'SKILL.md'),
+    path.join(repo, 'skills', 'claude-code', 'adversarial-pairing', 'SKILL.md'),
+    'Claude skill entry sync',
   );
 });
