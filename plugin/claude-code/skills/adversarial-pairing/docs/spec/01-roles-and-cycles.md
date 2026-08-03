@@ -2,7 +2,7 @@
 
 **Parent index**: [README.md](README.md)
 **Next cluster**: [02 — Verification Discipline](02-verification-discipline.md)
-**Version**: v0.2.0-rc.1
+**Version**: v0.2.0
 
 ---
 

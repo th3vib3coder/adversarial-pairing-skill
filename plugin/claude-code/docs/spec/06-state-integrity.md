@@ -3,7 +3,7 @@
 **Parent index**: [README.md](README.md)
 **Previous cluster**: [05 — Code Discipline](05-code-discipline.md)
 **Next cluster**: [07 — Plan & Document Discipline](07-plan-and-document-discipline.md)
-**Version**: v0.2.0-rc.1
+**Version**: v0.2.0
 
 ---
 

@@ -3,7 +3,7 @@
 **Parent index**: [README.md](README.md)
 **Previous cluster**: [03 — Ledger Discipline](03-ledger-discipline.md)
 **Next cluster**: [05 — Code Discipline](05-code-discipline.md)
-**Version**: v0.2.0-rc.1
+**Version**: v0.2.0
 
 ---
 

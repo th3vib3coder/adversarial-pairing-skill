@@ -113,7 +113,7 @@ and preserves every path that already exists.
 
 1. Preserve any local modifications to the old skill, command, or hook files outside the install
    directory; never overlay a new package onto unknown edits.
-2. Install v0.2.0-rc.1 into a clean directory or update the plugin through Claude Code.
+2. Install v0.2.0 into a clean directory or update the plugin through Claude Code.
 3. If the plugin is enabled, retire legacy copies of `hat-1-stop.md`,
    `adversarial-review.md`, `dual-commit.md`, `init-pairing.md`, and `lint-discipline.md` from
    `~/.claude/commands/` after confirming the namespaced commands load.
@@ -122,7 +122,7 @@ and preserves every path that already exists.
 5. Run `/reload-plugins` or restart the host, then test the workflow in a disposable repository.
 
 Existing target-project wiki pages, ledgers, tools, registries, and project instructions are not
-migration inputs: v0.2.0-rc.1 bootstrap preserves them. Any merge into a preserved file is a separate,
+migration inputs: v0.2.0 bootstrap preserves them. Any merge into a preserved file is a separate,
 reviewed change.
 
 ## Direct gates or standing authorization

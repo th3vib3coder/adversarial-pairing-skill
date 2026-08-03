@@ -2,7 +2,7 @@
 
 **Parent index**: [README.md](../README.md)
 **Cross-references**: [Cluster 1 — Roles & Cycles §1.5.2](../01-roles-and-cycles.md) · [Cluster 6 — State Integrity](../06-state-integrity.md)
-**Version**: v0.2.0-rc.1
+**Version**: v0.2.0
 
 ---
 

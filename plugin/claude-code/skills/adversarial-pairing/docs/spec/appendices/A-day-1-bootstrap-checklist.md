@@ -2,7 +2,7 @@
 
 **Parent index**: [README.md](../README.md)
 **Cross-references**: [Cluster 4 — Wiki Discipline §4.5.1](../04-wiki-discipline.md) · [Cluster 1 §1.5.3](../01-roles-and-cycles.md)
-**Version**: v0.2.0-rc.1
+**Version**: v0.2.0
 
 ---
 

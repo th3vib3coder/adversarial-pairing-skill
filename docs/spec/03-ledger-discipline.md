@@ -3,7 +3,7 @@
 **Parent index**: [README.md](README.md)
 **Previous cluster**: [02 — Verification Discipline](02-verification-discipline.md)
 **Next cluster**: [04 — Wiki Discipline](04-wiki-discipline.md)
-**Version**: v0.2.0-rc.1
+**Version**: v0.2.0
 
 ---
 

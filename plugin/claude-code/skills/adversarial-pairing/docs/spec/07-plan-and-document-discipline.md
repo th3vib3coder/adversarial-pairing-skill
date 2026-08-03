@@ -2,7 +2,7 @@
 
 **Parent index**: [README.md](README.md)
 **Previous cluster**: [06 — State Integrity](06-state-integrity.md)
-**Version**: v0.2.0-rc.1
+**Version**: v0.2.0
 
 ---
 

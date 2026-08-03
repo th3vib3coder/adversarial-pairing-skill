@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.0-rc.1 — 2026-08-02
+## v0.2.0 — 2026-08-03
 
 - Added read-only GitHub CI across Ubuntu/Windows and Node 18.17/24.
 - Replaced free-text commit gating with structural ledger parsing and bounded, fail-closed commit-target resolution.

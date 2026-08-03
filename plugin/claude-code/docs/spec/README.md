@@ -1,8 +1,8 @@
 # Adversarial Pairing — Spec Index
 
-**Version**: v0.2.0-rc.1
-**Date**: 2026-08-02
-**Status**: release candidate
+**Version**: v0.2.0
+**Date**: 2026-08-03
+**Status**: stable
 
 ---
 

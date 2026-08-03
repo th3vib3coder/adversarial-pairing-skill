@@ -163,7 +163,7 @@ installation. Both paths preserve existing managed files and stop before commit.
 
 ## Status
 
-v0.2.0-rc.1 — release candidate with structural commit gating, bounded standing
+v0.2.0 — stable release with structural commit gating, bounded standing
 authorization, no-clobber bootstrap, synchronized self-contained bundles, and hosted Node 18.17/24 CI.
 
 ---

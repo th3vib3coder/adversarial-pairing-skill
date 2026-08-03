@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..');
 const plugin = path.join(repo, 'plugin', 'claude-code');
-const release = '0.2.0-rc.1';
-const releaseDate = '2026-08-02';
+const release = '0.2.0';
+const releaseDate = '2026-08-03';
 const commandNames = [
   'adversarial-review',
   'dual-commit',
@@ -83,7 +83,7 @@ test('plugin.json is the single machine-readable version authority', async () =>
   assert.equal(Object.hasOwn(entry, 'version'), false, 'marketplace must defer to plugin.json');
   assert.equal(path.resolve(repo, entry.source), plugin);
   assert.match(spec, new RegExp(`\\*\\*Version\\*\\*: v${release.replaceAll('.', '\\.')}\\b`, 'u'));
-  assert.match(spec, /\*\*Status\*\*: release candidate/u);
+  assert.match(spec, /\*\*Status\*\*: stable/u);
   assert.match(changelog, new RegExp(`^## v${release.replaceAll('.', '\\.')} — ${releaseDate}$`, 'mu'));
   assert.equal(pluginChangelog, changelog);
   assert.match(readme, new RegExp(`^v${release.replaceAll('.', '\\.')}\\b`, 'mu'));
